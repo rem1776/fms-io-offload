@@ -38,66 +38,57 @@ subroutine setup_pelists(global_pelist, model_pelist, writer_pelist)
 end subroutine setup_pelists
 
 subroutine open_offloaded_file(filename)
-  integer :: io_op
   character(len=*), intent(in) :: filename
-
   if( mpp_pe() .ne. mpp_root_pe() ) return
   print *, "model sending open signal to writer pe(", mpp_npes()-1, ") for file: ", trim(filename)
-  io_op = IO_OP_OPEN
-  call mpp_send(io_op, mpp_npes()-1)
+  call mpp_send(IO_OP_OPEN, mpp_npes()-1)
+  call mpp_send(filename, 1, mpp_npes()-1)
 end subroutine open_offloaded_file
 
 subroutine close_offloaded_file()
-  integer :: io_op
-
   if( mpp_pe() .ne. mpp_root_pe() ) return
-  io_op = IO_OP_CLOSE
-  call mpp_send(io_op, mpp_npes()-1)
+  call mpp_send(IO_OP_CLOSE, mpp_npes()-1)
 end subroutine close_offloaded_file
 
-subroutine close_offloaded_files()
-  call close_offloaded_file()
-end subroutine close_offloaded_files
+subroutine io_offload_end()
+  if( mpp_pe() .ne. mpp_root_pe() ) return
+  call mpp_send(IO_OP_EXIT, mpp_npes()-1)
+end subroutine io_offload_end
 
 subroutine register_axis_offloaded_file(axis_name, cart_name, axis_size)
   integer :: io_op
   character(len=*), intent(in) :: axis_name, cart_name
   integer, intent(in) :: axis_size
-  character(len=128) :: axis_name_buf, cart_name_buf
+  character(len=128) :: axis_name_buf
+  character(len=1) :: cart_name_buf
 
   if( mpp_pe() .ne. mpp_root_pe() ) return
   axis_name_buf = trim(axis_name)
-  cart_name_buf = trim(cart_name)
+  cart_name_buf = cart_name
   io_op = IO_OP_REGISTER_AXIS
+  ! send op code so the writer knows what to receive next
   call mpp_send(io_op, mpp_npes()-1)
-  call mpp_send_char(axis_name_buf, mpp_npes()-1)
-  call mpp_send_char(cart_name_buf, mpp_npes()-1)
+  ! send the axis name, cartesian name, and size to the writer PE
+  call mpp_send(axis_name_buf, 1, mpp_npes()-1)
+  call mpp_send(cart_name_buf, 1, mpp_npes()-1)
   call mpp_send(axis_size, mpp_npes()-1)
 end subroutine register_axis_offloaded_file
 
-subroutine register_axes_offloaded_file(axis_names, cart_names, axis_sizes, domain)
-  character(len=*), intent(in) :: axis_names(:), cart_names(:)
-  integer, intent(in) :: axis_sizes(:)
-  type(domain2d), intent(in) :: domain
-  integer :: i
-
-  if( mpp_pe() .ne. mpp_root_pe() ) return
-  do i = 1, size(axis_names)
-    call register_axis_offloaded_file(axis_names(i), cart_names(i), axis_sizes(i))
-  end do
-end subroutine register_axes_offloaded_file
-
-subroutine register_field_offloaded_file(field_name, field_dims)
+subroutine register_field_offloaded_file(field_name, field_dims, field_type)
   integer :: io_op
   character(len=*), intent(in) :: field_name
-  integer, intent(in) :: field_dims(:)
-  character(len=128) :: field_name_buf
+  character(len=16), intent(in) :: field_dims(:)
+  integer, intent(in) :: field_type
 
   if( mpp_pe() .ne. mpp_root_pe() ) return
-  field_name_buf = trim(field_name)
   io_op = IO_OP_REGISTER_FIELD
   call mpp_send(io_op, mpp_npes()-1)
-  call mpp_send_char(field_name_buf, mpp_npes()-1)
+  call mpp_send(field_name, 1, mpp_npes()-1)
+  !! TODO this is bad, but ill put off adding string arrays to mpp_send for now 
+  call mpp_send(field_dims(1), 1, mpp_npes()-1)
+  call mpp_send(field_dims(2), 1, mpp_npes()-1)
+
+  call mpp_send(field_type, mpp_npes()-1)
 end subroutine register_field_offloaded_file
 
 subroutine write_field_offloaded_file(field_name, field_data)
@@ -110,7 +101,7 @@ subroutine write_field_offloaded_file(field_name, field_data)
   field_name_buf = trim(field_name)
   io_op = IO_OP_WRITE
   call mpp_send(io_op, mpp_npes()-1)
-  call mpp_send_char(field_name_buf, mpp_npes()-1)
+  call mpp_send(field_name_buf, 1, mpp_npes()-1)
   fld_nx = size(field_data, 1)
   fld_ny = size(field_data, 2)
   call mpp_send(fld_nx, mpp_npes()-1)
@@ -118,26 +109,37 @@ subroutine write_field_offloaded_file(field_name, field_data)
   call mpp_send(field_data, fld_nx*fld_ny, mpp_npes()-1)
 end subroutine write_field_offloaded_file
 
-! Send a fixed-length (128) character string via direct MPI call
-subroutine mpp_send_char(str, to_pe)
-  use mpi
-  character(len=128), intent(in) :: str
-  integer, intent(in) :: to_pe
-  integer :: ierr, tag
+elemental function get_type_string(field_type) result(type_string)
+  integer, intent(in) :: field_type
+  character(len=16) :: type_string
 
-  tag = 1  ! arbitrary tag for character messages
-  !call MPI_SEND(str, 128, MPI_CHARACTER, to_pe, tag, MPI_COMM_WORLD, ierr)
-end subroutine mpp_send_char
+  select case(field_type)
+  case(DOUBLE)
+    type_string = "double"
+  case(FLOAT)
+    type_string = "float"
+  case(INTEGER)
+    type_string = "integer"
+  case(LOGICAL)
+    type_string = "logical"
+  case(CHARACTER)
+    type_string = "character"
+  case default
+    type_string = "unknown"
+  end select
+end function get_type_string
 
-! Receive a fixed-length (128) character string via direct MPI call
-subroutine mpp_recv_char(str, from_pe)
-  use mpi
-  character(len=128), intent(out) :: str
-  integer, intent(in) :: from_pe
-  integer :: ierr, tag
-  integer :: status(MPI_STATUS_SIZE)
+elemental function clean_string(input_string) result(cleaned_string)
+  character(len=*), intent(in) :: input_string
+  character(len=len(input_string)) :: cleaned_string
+  integer :: i, j
 
-  tag = 1  ! arbitrary tag for character messages
-  !call MPI_RECV(str, 128, MPI_CHARACTER, from_pe, tag, MPI_COMM_WORLD, status, ierr)
-  str = "placeholder_string"
-end subroutine mpp_recv_char
+  j = 1
+  do i = 1, len(input_string)
+    if (input_string(i:i) /= ' ' .and. input_string(i:i) /= ACHAR(10) .and. input_string(i:i) /= ACHAR(13)) then
+      cleaned_string(j:j) = input_string(i:i)
+      j = j + 1
+    end if
+  end do
+  cleaned_string = cleaned_string(1:j-1)
+end function clean_string

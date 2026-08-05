@@ -16,14 +16,16 @@ program writer
     logical :: is_running = .true., success
     type(domain2d) :: model_domain, offload_domain
     integer :: nx, ny, nz, ntiles, npes
-    integer, allocatable :: global_pelist(:), offload_pelist(:), model_pelist(:)
+    integer, allocatable :: global_pelist(:), offload_pelist(:), model_pelist(:), dims(:)
     integer :: io_layout(2), global_indices(2)
     integer, parameter :: halo = 0
-    integer, parameter :: IO_OP_OPEN = 1, IO_OP_REGISTER_AXIS = 2, IO_OP_REGISTER_FIELD = 3, IO_OP_WRITE = 4, IO_OP_CLOSE = 5
-    character(len=128) :: filename(1), axis_name, cart_name, field_name, field_units
-    integer :: field_dims(5)
-    integer :: filename_num, axis_len
+    character(len=128) :: filename, axis_name, cart_name, field_name, field_units
+    character(len=16) :: field_dims(5)
+    integer :: filename_num, axis_len, field_type, dim_count
     real, allocatable :: field_data(:,:)
+    character(len=16) :: field_type_str
+
+    #include "enums.inc"
 
 
     call fms_init()
@@ -73,7 +75,7 @@ program writer
 
       case (IO_OP_OPEN)
         print *, 'writer recieved open signal'
-        call mpp_recv_char(filename(1), model_root_pe)
+        call mpp_recv(filename, 1, model_root_pe)
         call mpp_set_current_pelist(offload_pelist, no_sync=.true.)
         success = open_file(fileobj, 'offloaded_file.nc', 'write', domain=offload_domain)
 
@@ -81,26 +83,40 @@ program writer
         print *, 'writer recieved close signal'
         call mpp_set_current_pelist(offload_pelist, no_sync=.true.)
         call close_file(fileobj)
-        is_running = .false.
 
       case (IO_OP_REGISTER_AXIS)
         print *, 'writer recieved register axis signal'
-        call mpp_recv_char(axis_name, model_root_pe)
-        call mpp_recv_char(cart_name, model_root_pe)
+        call mpp_recv(axis_name, 1, model_root_pe)
+        call mpp_recv(cart_name, 1, model_root_pe)
+        cart_name = "" // trim(adjustl(cart_name))
+        cart_name = cart_name(1:1)  ! fortran strings are annoying
         call mpp_recv(axis_len, model_root_pe)
+        print *, "writer recieved cart name: '" // cart_name // "'"
         call mpp_set_current_pelist(offload_pelist, no_sync=.true.)
-        cart_name = 'x'
-        call register_axis(fileobj, trim(axis_name), trim(cart_name))
+        call register_axis(fileobj, trim(axis_name), trim(adjustl(cart_name)))
 
       case (IO_OP_REGISTER_FIELD)
         print *, 'writer recieved register field signal'
-        call mpp_recv_char(field_name, model_root_pe)
+        call mpp_recv(field_name, 1, model_root_pe)
+
+        ! TODO need to implement character array support 
+        call mpp_recv(field_dims(1), 1, model_root_pe)
+        call mpp_recv(field_dims(2), 1, model_root_pe)
+
+        call mpp_recv(field_type, model_root_pe)
         call mpp_set_current_pelist(offload_pelist, no_sync=.true.)
-        call register_field(fileobj, trim(field_name), "float", (/"x", "y"/))
+        field_type_str = get_type_string(field_type)
+        field_name = clean_string(field_name)
+        field_dims = clean_string(field_dims)
+        !field_dims(1) = clean_string(field_dims(1))
+        !field_dims(2) = clean_string(field_dims(2))
+        !call register_field(fileobj, trim(field_name), trim(field_type_str), dimensions=field_dims)
+        call register_field(fileobj, trim(field_name), trim(field_type_str), &
+                            dimensions=(/ trim(field_dims(1)), trim(field_dims(2)) /))
 
       case (IO_OP_WRITE)
         print *, 'writer recieved write signal'
-        call mpp_recv_char(field_name, model_root_pe)
+        call mpp_recv(field_name, 1, model_root_pe)
         call mpp_recv(nx, model_root_pe)
         call mpp_recv(ny, model_root_pe)
         if (allocated(field_data)) deallocate(field_data)
@@ -108,6 +124,10 @@ program writer
         call mpp_recv(field_data, nx*ny, model_root_pe)
         call mpp_set_current_pelist(offload_pelist, no_sync=.true.)
         call write_data(fileobj, trim(field_name), field_data)
+
+      case (IO_OP_EXIT)
+        print *, 'writer recieved exit signal'
+        is_running = .false.
 
       case default
         call mpp_error(NOTE, "Writer received unknown io_op code: " // trim(adjustl(string(io_op))))

@@ -13,9 +13,10 @@ program model
   integer, parameter :: halo = 1
   type(domain2d) :: domain
   integer :: isc, iec, jsc, jec, axis_sizes(2)
-  character(len=128) :: axis_names(2), cart_names(2), field_names(1)
+  character(len=16) :: axis_names(2), cart_names(2), field_names(1)
   integer, allocatable :: global_pelist(:), model_pelist(:), offload_pelist(:)
-  integer, parameter :: IO_OP_OPEN = 1, IO_OP_REGISTER_AXIS = 2, IO_OP_REGISTER_FIELD = 3, IO_OP_WRITE = 4, IO_OP_CLOSE = 5
+
+  #include "enums.inc"
 
   call fms_init()
 
@@ -46,7 +47,9 @@ program model
   call mpp_set_current_pelist(global_pelist, no_sync=.true.)
   if( mpp_pe() .eq. mpp_root_pe() ) then 
     call open_offloaded_file('offload_test.nc')
-    call register_axis_offloaded_file(axis_names(1), cart_names(1), axis_sizes(1))
+    call register_axis_offloaded_file(trim(axis_names(1)), trim(cart_names(1)), axis_sizes(1))
+    call register_axis_offloaded_file(trim(axis_names(2)), trim(cart_names(2)), axis_sizes(2))
+    call register_field_offloaded_file(field_names(1), axis_names, FLOAT)
   endif
   call mpp_set_current_pelist(model_pelist, no_sync=.true.)
 
@@ -60,7 +63,8 @@ program model
 
   call mpp_set_current_pelist(global_pelist, no_sync=.true.)
   if( mpp_pe() .eq. mpp_root_pe() ) then 
-    call close_offloaded_files()
+    call close_offloaded_file()
+    call io_offload_end()
   endif
   call mpp_set_current_pelist(model_pelist, no_sync=.true.)
 
