@@ -60,7 +60,7 @@ program model
     print *, 'model doing timestep ', i
     data_field_2d = real(i) ! just fill with timestep number for testing
     call mpp_set_current_pelist(global_pelist, no_sync=.true.)
-    ! TODO
+    ! TODO how should we send the data?
     !call write_field_offloaded_file(field_names(1), data_field_2d, global_domain, data_domain)
     call mpp_set_current_pelist(model_pelist, no_sync=.true.)
   end do

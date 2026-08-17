@@ -109,10 +109,11 @@ subroutine write_field_offloaded_file(field_name, field_data, global_domain, dat
   endif
   allocate(pelist(mpp_npes()))
   call mpp_get_current_pelist(pelist)
-  ! then all PEs send their data portion to aggregate on the writer PE
-  call mpp_gather(data_domain(1), data_domain(2), data_domain(3), data_domain(4), &
-                  pelist, field_data, tmp, is_root_pe=.false.)
+  ! TODO how to send data from each pe?
+  ! could either do a collective gather or have each pe send their own data to writer individually 
 
+  !call mpp_gather(data_domain(1), data_domain(2), data_domain(3), data_domain(4), &
+  !                pelist, field_data, tmp, is_root_pe=.false.)
   !!                    call mpp_gather(is, ie, js, je, pelist, array_seg, data, is_root_pe)
   !call mpp_send(field_data, fld_nx*fld_ny, mpp_npes()-1)
 end subroutine write_field_offloaded_file
