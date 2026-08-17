@@ -17,12 +17,12 @@ program writer
     type(domain2d) :: model_domain, offload_domain
     integer :: nx, ny, nz, ntiles, npes
     integer, allocatable :: global_pelist(:), offload_pelist(:), model_pelist(:), dims(:)
-    integer :: io_layout(2), global_indices(2)
+    integer :: io_layout(2), global_indices(2), global_domain(4)
     integer, parameter :: halo = 0
     character(len=128) :: filename, axis_name, cart_name, field_name, field_units
     character(len=16) :: field_dims(5)
     integer :: filename_num, axis_len, field_type, dim_count
-    real, allocatable :: field_data(:,:)
+    real, allocatable :: field_data(:,:), field_data_tmp(:,:), tmp(:,:)
     character(len=16) :: field_type_str
 
     #include "enums.inc"
@@ -74,59 +74,56 @@ program writer
       select case (io_op)
 
       case (IO_OP_OPEN)
-        print *, 'writer recieved open signal'
+        print *, 'writer received open signal'
         call mpp_recv(filename, 1, model_root_pe)
         call mpp_set_current_pelist(offload_pelist, no_sync=.true.)
         success = open_file(fileobj, 'offloaded_file.nc', 'write', domain=offload_domain)
 
       case (IO_OP_CLOSE)
-        print *, 'writer recieved close signal'
+        print *, 'writer received close signal'
         call mpp_set_current_pelist(offload_pelist, no_sync=.true.)
         call close_file(fileobj)
 
       case (IO_OP_REGISTER_AXIS)
-        print *, 'writer recieved register axis signal'
+        print *, 'writer received register axis signal'
         call mpp_recv(axis_name, 1, model_root_pe)
         call mpp_recv(cart_name, 1, model_root_pe)
         cart_name = "" // trim(adjustl(cart_name))
         cart_name = cart_name(1:1)  ! fortran strings are annoying
         call mpp_recv(axis_len, model_root_pe)
-        print *, "writer recieved cart name: '" // cart_name // "'"
         call mpp_set_current_pelist(offload_pelist, no_sync=.true.)
         call register_axis(fileobj, trim(axis_name), trim(adjustl(cart_name)))
 
       case (IO_OP_REGISTER_FIELD)
-        print *, 'writer recieved register field signal'
+        print *, 'writer received register field signal'
         call mpp_recv(field_name, 1, model_root_pe)
-
         ! TODO need to implement character array support 
         call mpp_recv(field_dims(1), 1, model_root_pe)
         call mpp_recv(field_dims(2), 1, model_root_pe)
-
         call mpp_recv(field_type, model_root_pe)
         call mpp_set_current_pelist(offload_pelist, no_sync=.true.)
         field_type_str = get_type_string(field_type)
         field_name = clean_string(field_name)
         field_dims = clean_string(field_dims)
-        !field_dims(1) = clean_string(field_dims(1))
-        !field_dims(2) = clean_string(field_dims(2))
-        !call register_field(fileobj, trim(field_name), trim(field_type_str), dimensions=field_dims)
         call register_field(fileobj, trim(field_name), trim(field_type_str), &
                             dimensions=(/ trim(field_dims(1)), trim(field_dims(2)) /))
 
       case (IO_OP_WRITE)
-        print *, 'writer recieved write signal'
+        print *, 'writer received write signal'
+        !! recieve metadata from root pe 
         call mpp_recv(field_name, 1, model_root_pe)
-        call mpp_recv(nx, model_root_pe)
-        call mpp_recv(ny, model_root_pe)
+        call mpp_recv(global_domain, 4, model_root_pe)
         if (allocated(field_data)) deallocate(field_data)
-        allocate(field_data(nx, ny))
-        call mpp_recv(field_data, nx*ny, model_root_pe)
+        allocate(field_data_tmp(global_domain(2)-global_domain(1)+1, global_domain(4)-global_domain(3)+1))
+        tmp = field_data_tmp(1:1, 1:1)
+        !call mpp_recv(field_data_tmp, nx*ny, model_root_pe)
+        call mpp_gather(global_domain(1), global_domain(2), global_domain(3), global_domain(4), &
+                  global_pelist, tmp, field_data_tmp, is_root_pe=.true.)
         call mpp_set_current_pelist(offload_pelist, no_sync=.true.)
         call write_data(fileobj, trim(field_name), field_data)
 
       case (IO_OP_EXIT)
-        print *, 'writer recieved exit signal'
+        print *, 'writer received exit signal'
         is_running = .false.
 
       case default

@@ -91,22 +91,30 @@ subroutine register_field_offloaded_file(field_name, field_dims, field_type)
   call mpp_send(field_type, mpp_npes()-1)
 end subroutine register_field_offloaded_file
 
-subroutine write_field_offloaded_file(field_name, field_data)
-  integer :: io_op, fld_nx, fld_ny
+subroutine write_field_offloaded_file(field_name, field_data, global_domain, data_domain)
+  integer :: fld_nx, fld_ny
   character(len=*), intent(in) :: field_name
   real, intent(in) :: field_data(:,:)
+  integer, intent(in) :: global_domain(4), data_domain(4)
   character(len=128) :: field_name_buf
+  real :: tmp(1,1)
+  integer, allocatable :: pelist(:)
 
-  if( mpp_pe() .ne. mpp_root_pe() ) return
-  field_name_buf = trim(field_name)
-  io_op = IO_OP_WRITE
-  call mpp_send(io_op, mpp_npes()-1)
-  call mpp_send(field_name_buf, 1, mpp_npes()-1)
-  fld_nx = size(field_data, 1)
-  fld_ny = size(field_data, 2)
-  call mpp_send(fld_nx, mpp_npes()-1)
-  call mpp_send(fld_ny, mpp_npes()-1)
-  call mpp_send(field_data, fld_nx*fld_ny, mpp_npes()-1)
+  ! only root pe needs to send opcode and metadata
+  if( mpp_pe() .ne. mpp_root_pe() ) then
+    field_name_buf = trim(field_name)
+    call mpp_send(IO_OP_WRITE, mpp_npes()-1)
+    call mpp_send(field_name_buf, 1, mpp_npes()-1)
+    call mpp_send(global_domain, 4, mpp_npes()-1)
+  endif
+  allocate(pelist(mpp_npes()))
+  call mpp_get_current_pelist(pelist)
+  ! then all PEs send their data portion to aggregate on the writer PE
+  call mpp_gather(data_domain(1), data_domain(2), data_domain(3), data_domain(4), &
+                  pelist, field_data, tmp, is_root_pe=.false.)
+
+  !!                    call mpp_gather(is, ie, js, je, pelist, array_seg, data, is_root_pe)
+  !call mpp_send(field_data, fld_nx*fld_ny, mpp_npes()-1)
 end subroutine write_field_offloaded_file
 
 elemental function get_type_string(field_type) result(type_string)

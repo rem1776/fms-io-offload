@@ -12,9 +12,10 @@ program model
   real, allocatable :: data_field_2d(:,:)
   integer, parameter :: halo = 1
   type(domain2d) :: domain
-  integer :: isc, iec, jsc, jec, axis_sizes(2)
+  integer :: isc, iec, jsc, jec, isd, ied, jsd, jed, axis_sizes(2)
   character(len=16) :: axis_names(2), cart_names(2), field_names(1)
   integer, allocatable :: global_pelist(:), model_pelist(:), offload_pelist(:)
+  integer :: data_domain(4), global_domain(4)
 
   #include "enums.inc"
 
@@ -30,7 +31,9 @@ program model
                            shalo=halo, nhalo=halo, name='model_domain') 
   call mpp_define_io_domain(domain, (/1,1/))
   call mpp_get_compute_domain(domain, isc, iec, jsc, jec)
-  allocate(data_field_2d(isc:iec, jsc:jec))
+  call mpp_get_data_domain(domain, data_domain(1), data_domain(2), data_domain(3), data_domain(4))
+  call mpp_get_global_domain(domain, global_domain(1), global_domain(2), global_domain(3), global_domain(4))
+  allocate(data_field_2d(data_domain(1):data_domain(2), data_domain(3):data_domain(4)))
 
   ! set global pelist and send domain metadata to offload pes
   call mpp_set_current_pelist(global_pelist)
@@ -56,9 +59,10 @@ program model
   do i=1,10
     print *, 'model doing timestep ', i
     data_field_2d = real(i) ! just fill with timestep number for testing
-    !if( mpp_pe() .eq. mpp_root_pe() ) then 
-      !call write_field_offloaded_file(field_names(1), data_field_2d)
-    !endif
+    call mpp_set_current_pelist(global_pelist, no_sync=.true.)
+    ! TODO
+    !call write_field_offloaded_file(field_names(1), data_field_2d, global_domain, data_domain)
+    call mpp_set_current_pelist(model_pelist, no_sync=.true.)
   end do
 
   call mpp_set_current_pelist(global_pelist, no_sync=.true.)
