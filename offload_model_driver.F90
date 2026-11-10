@@ -70,7 +70,7 @@ program offload_model_driver
 
   var_r4 = create_dummy_data(model_domain)
 
-  call send_domain_metadata(model_domain, max_pending_writes=max_pending)
+  call send_domain_metadata(model_domain)
 
   clock_id = mpp_clock_id( 'WriteClock' )
 
