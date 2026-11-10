@@ -1,13 +1,20 @@
-all: writer.x model.x
+default: offload_writer_driver.x offload_model_driver.x baseline_test_driver.x
 
-FMS_BUILD= /home/Ryan.Mulhall/fms-io-offload/fms/build
-FCFLAGS=-g -traceback -O0
+LDFLAGS=-Lfms/build/libFMS/.libs -lFMS
+INC_FLAGS=-Ifms/build/.mods
 
-model.x: model.F90
-	mpiifx ${FCFLAGS} -o model.x -lFMS -L${FMS_BUILD}/libFMS/.libs -I${FMS_BUILD}/.mods model.F90
+CC=cc
+FC=ftn
+FCFLAGS=-g -traceback
 
-writer.x: writer.F90
-	mpiifx ${FCFLAGS} -o writer.x -lFMS -L${FMS_BUILD}/libFMS/.libs -I${FMS_BUILD}/.mods writer.F90
+offload_writer_driver.x: offload_writer_driver.F90
+	${FC} ${LDFLAGS} ${INC_FLAGS} ${FCFLAGS} offload_writer_driver.F90 -o offload_writer_driver.x
+
+offload_model_driver.x: offload_model_driver.F90
+	${FC} ${LDFLAGS} ${INC_FLAGS} ${FCFLAGS} offload_model_driver.F90 -o offload_model_driver.x
+
+baseline_test_driver.x: baseline_test_driver.F90
+	${FC} ${LDFLAGS} ${INC_FLAGS} ${FCFLAGS} baseline_test_driver.F90 -o baseline_test_driver.x
 
 clean:
-	rm *.x
+	rm *.x 
