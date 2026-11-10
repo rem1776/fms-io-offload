@@ -38,18 +38,18 @@ program offload_model_driver
   integer :: domain_type = lat_lon    !< The type of domain to use [lat_lon or cube_sphere]
   integer :: layout(2)                !< layout for each tile
   integer :: nwriters                 !< number of writing pes, taken from the end of the pelist
-  integer :: max_pending              !< number of pending write operations
 
-  namelist /test_io_offloading_nml/ nx, ny, nz, nxhalo, nyhalo, domain_type, io_layout, layout, nwriters, max_pending
+  namelist /model_driver_nml/ nx, ny, nz, nxhalo, nyhalo, domain_type, io_layout, layout, nwriters
 
   call fms_init
 
   layout = -1
 
-  read(input_nml_file, nml=test_io_offloading_nml, iostat=io)
-  ierr = check_nml_error(io, 'test_io_offloading_nml')
+  read(input_nml_file, nml=model_driver_nml, iostat=io)
+  call offloading_io_init(global_pes, model_pes, writer_pes, nwriters=nwriters)
 
-  call offloading_io_init(global_pes, model_pes, writer_pes, nwriters=6)
+  ierr = check_nml_error(io, 'model_driver_nml')
+
 
   call mpp_set_current_pelist(model_pes)
 
